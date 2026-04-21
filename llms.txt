@@ -1,0 +1,57 @@
+# contemplative-agent-cloud
+
+> Optional managed-LLM backend package for
+> [contemplative-agent](https://github.com/shimo4228/contemplative-agent).
+> Installing it and setting an API key routes generation calls in
+> contemplative-agent (distill, insight, rules-distill,
+> amend-constitution, post, comment, reply, dialogue, skill-reflect)
+> through Anthropic Claude or OpenAI GPT. Embeddings continue to use
+> local `nomic-embed-text` via Ollama.
+>
+> The main repository's default stack (Ollama + Qwen3.5 9B) is
+> unchanged by this package. Cloud routing activates only when this
+> package is installed AND an API key and provider are configured.
+>
+> Intended for research experiments requiring a generation model
+> larger than Qwen3.5 9B — for example, comparing how distillation
+> behavior changes with Claude Opus or GPT-5 while keeping the rest of
+> the memory pipeline identical.
+
+## Core documentation
+
+- [README](README.md): install, configure, run, security posture, trade-offs
+- Main project README: [contemplative-agent README](https://github.com/shimo4228/contemplative-agent/blob/main/README.md)
+
+## Supported providers
+
+- **Anthropic** — default model `claude-opus-4-7`, credential `ANTHROPIC_API_KEY`
+- **OpenAI** — default model `gpt-5`, credential `OPENAI_API_KEY`
+
+## Architecture
+
+- `src/contemplative_agent_cloud/backends/anthropic.py`: `AnthropicBackend` — implements the `LLMBackend` Protocol against Anthropic's Messages API. JSON-schema output is requested via a prepended instruction to the user message (Anthropic has no native JSON-schema constrained decoding).
+- `src/contemplative_agent_cloud/backends/openai.py`: `OpenAIBackend` — implements `LLMBackend` against OpenAI's Chat Completions API. JSON-schema output uses the native `response_format: json_schema, strict: true` mode.
+- `src/contemplative_agent_cloud/cli.py`: wrapper entry point. Reads `CONTEMPLATIVE_CLOUD_PROVIDER` / `CONTEMPLATIVE_CLOUD_MODEL` from the environment, constructs the selected backend, calls `contemplative_agent.core.llm.configure(backend=...)`, then delegates to the main `contemplative-agent` CLI.
+
+## Security trade-off
+
+Installing this package **relaxes** the main repository's "No cloud.
+No API keys in transit. Local Ollama only" promise. When a cloud
+backend is active:
+
+- API keys are loaded from environment variables and sent to the
+  provider over HTTPS with every request.
+- Prompt content — including episode-derived context wrapped with
+  `<untrusted_content>` boundaries by the main repository — is
+  transmitted to the provider and may be retained by them.
+- Output returns over HTTPS, is passed through the main repository's
+  `_sanitize_output()` forbidden-pattern filter, and is stored locally
+  in `$MOLTBOOK_HOME`.
+
+Users who need the "No cloud" property (regulatory constraints,
+air-gapped deployments, privacy-sensitive assistants) should not
+install this package and instead run the main repository alone.
+
+## Related repositories
+
+- [contemplative-agent](https://github.com/shimo4228/contemplative-agent): the main repository that this package extends

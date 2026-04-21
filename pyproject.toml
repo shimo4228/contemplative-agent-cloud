@@ -1,0 +1,47 @@
+[project]
+name = "contemplative-agent-cloud"
+version = "0.1.0"
+description = "Optional managed-LLM backends (Anthropic Claude, OpenAI GPT) for contemplative-agent. Routes generation calls to cloud APIs while keeping embeddings local."
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Tatsuya Shimomoto"},
+]
+keywords = [
+    "contemplative-agent", "anthropic", "openai", "claude", "gpt",
+    "llm-backend", "ai-agent",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "contemplative-agent>=2.0",
+    "anthropic>=0.40.0",
+    "openai>=1.50.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/shimo4228/contemplative-agent-cloud"
+Repository = "https://github.com/shimo4228/contemplative-agent-cloud"
+"Main project" = "https://github.com/shimo4228/contemplative-agent"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+
+[project.scripts]
+contemplative-agent-cloud = "contemplative_agent_cloud.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/contemplative_agent_cloud"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
