@@ -146,11 +146,19 @@ The main repository exposes a single abstract hook:
 ```python
 # contemplative_agent/core/llm.py
 class LLMBackend(Protocol):
-    def generate(self, prompt, system, num_predict, format) -> Optional[str]: ...
+    @property
+    def model(self) -> str: ...
+    @property
+    def context_window(self) -> int: ...
+    def generate(self, prompt, system, num_predict, format, *, temperature, think) -> Optional[BackendResult]: ...
 ```
 
 This package provides concrete implementations of that Protocol for
-Anthropic and OpenAI. The Protocol itself has no knowledge of any
+Anthropic and OpenAI. `generate()` returns a `BackendResult` (text plus
+optional `finish_reason` / token-usage fields); the main repository handles
+sanitization, the truncation gate, and circuit breaking uniformly across
+backends. `context_window` feeds the pre-flight budget guard with each
+provider's real context limit. The Protocol itself has no knowledge of any
 specific provider — it could be implemented for Gemini, Mistral, a
 locally-hosted vLLM server, or any other backend.
 

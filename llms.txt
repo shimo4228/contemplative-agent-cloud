@@ -29,8 +29,8 @@
 
 ## Architecture
 
-- `src/contemplative_agent_cloud/backends/anthropic.py`: `AnthropicBackend` — implements the `LLMBackend` Protocol against Anthropic's Messages API. JSON-schema output is requested via a prepended instruction to the user message (Anthropic has no native JSON-schema constrained decoding).
-- `src/contemplative_agent_cloud/backends/openai.py`: `OpenAIBackend` — implements `LLMBackend` against OpenAI's Chat Completions API. JSON-schema output uses the native `response_format: json_schema, strict: true` mode.
+- `src/contemplative_agent_cloud/backends/anthropic.py`: `AnthropicBackend` — implements the `LLMBackend` Protocol against Anthropic's Messages API. `generate()` returns a `BackendResult` (text + `finish_reason` mapped from `stop_reason`, with `max_tokens`→`length`, + token usage). Declares `context_window=200000`, clamps temperature to Anthropic's [0,1] range, and accepts (ignores) `think`. JSON-schema output is requested via a prepended instruction to the user message (Anthropic has no native JSON-schema constrained decoding).
+- `src/contemplative_agent_cloud/backends/openai.py`: `OpenAIBackend` — implements `LLMBackend` against OpenAI's Chat Completions API, returning a `BackendResult` (text + native `length` `finish_reason` + token usage incl. `cached_tokens`). Declares a per-model `context_window` (gpt-5 = 400000, else 128000), forwards temperature unclamped ([0,2]), and accepts (ignores) `think`. JSON-schema output uses the native `response_format: json_schema, strict: true` mode.
 - `src/contemplative_agent_cloud/cli.py`: wrapper entry point. Reads `CONTEMPLATIVE_CLOUD_PROVIDER` / `CONTEMPLATIVE_CLOUD_MODEL` from the environment, constructs the selected backend, calls `contemplative_agent.core.llm.configure(backend=...)`, then delegates to the main `contemplative-agent` CLI.
 
 ## Security trade-off

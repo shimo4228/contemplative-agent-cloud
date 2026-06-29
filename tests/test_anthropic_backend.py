@@ -11,16 +11,19 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tests._fakes import AnthropicResponse
+from contemplative_agent.core.llm import BackendResult
+
+from tests._fakes import AnthropicBlock, AnthropicResponse
 
 
-def test_generate_returns_text(fake_anthropic):
+def test_generate_returns_backend_result(fake_anthropic):
     from contemplative_agent_cloud.backends.anthropic import AnthropicBackend
 
     backend = AnthropicBackend(api_key="fake-key", model="claude-opus-4-7")
     result = backend.generate("hello", "system", 256, None)
 
-    assert result == "hello"
+    assert isinstance(result, BackendResult)
+    assert result.text == "hello"
     client = backend._client
     assert len(client.messages.calls) == 1
     call = client.messages.calls[0]
@@ -28,6 +31,103 @@ def test_generate_returns_text(fake_anthropic):
     assert call["system"] == "system"
     assert call["max_tokens"] == 256
     assert call["messages"] == [{"role": "user", "content": "hello"}]
+
+
+def test_generate_maps_token_usage(fake_anthropic):
+    from contemplative_agent_cloud.backends.anthropic import AnthropicBackend
+
+    backend = AnthropicBackend(api_key="fake-key")
+    result = backend.generate("hello", "system", 256, None)
+
+    # The fake reports input_tokens=11, output_tokens=7, no cache fields.
+    assert result.eval_count == 7
+    assert result.prompt_tokens == 11
+    assert result.cached_tokens is None
+    assert result.thinking is None
+
+
+def test_finish_reason_maps_max_tokens_to_length(fake_anthropic):
+    from contemplative_agent_cloud.backends.anthropic import AnthropicBackend
+
+    backend = AnthropicBackend(api_key="fake-key")
+    backend._get_client().messages.stop_reason = "max_tokens"
+
+    result = backend.generate("hello", "system", 256, None)
+
+    # Anthropic's "max_tokens" must translate to the core's "length" so the
+    # drop_truncated gate fires.
+    assert result.finish_reason == "length"
+
+
+def test_usage_absent_leaves_token_fields_none(fake_anthropic):
+    """An SDK response with no usage object must not raise — fields go None."""
+    from contemplative_agent_cloud.backends.anthropic import AnthropicBackend
+
+    backend = AnthropicBackend(api_key="fake-key")
+    backend._get_client().messages.create = MagicMock(
+        return_value=AnthropicResponse(
+            content=[AnthropicBlock(text="hi")], stop_reason="end_turn", usage=None
+        )
+    )
+
+    result = backend.generate("p", "s", 10, None)
+
+    assert result.text == "hi"
+    assert result.eval_count is None
+    assert result.prompt_tokens is None
+    assert result.cached_tokens is None
+
+
+def test_finish_reason_passthrough_for_end_turn(fake_anthropic):
+    from contemplative_agent_cloud.backends.anthropic import AnthropicBackend
+
+    backend = AnthropicBackend(api_key="fake-key")
+    result = backend.generate("hello", "system", 256, None)
+
+    assert result.finish_reason == "end_turn"
+
+
+def test_context_window_default(fake_anthropic):
+    from contemplative_agent_cloud.backends.anthropic import AnthropicBackend
+
+    backend = AnthropicBackend(api_key="fake-key", model="claude-opus-4-7")
+    assert backend.context_window == 200_000
+    # Dated id variants resolve via prefix match, not a fall to a wrong default.
+    assert (
+        AnthropicBackend(api_key="k", model="claude-opus-4-7-20250101").context_window
+        == 200_000
+    )
+
+
+def test_temperature_clamped_to_anthropic_range(fake_anthropic):
+    from contemplative_agent_cloud.backends.anthropic import AnthropicBackend
+
+    backend = AnthropicBackend(api_key="fake-key")
+    # Core may pass COMMENT_TEMPERATURE=1.3; Anthropic rejects >1.0.
+    backend.generate("hello", "system", 256, None, temperature=1.3)
+
+    call = backend._client.messages.calls[0]
+    assert call["temperature"] == 1.0
+
+
+def test_temperature_forwarded_when_in_range(fake_anthropic):
+    from contemplative_agent_cloud.backends.anthropic import AnthropicBackend
+
+    backend = AnthropicBackend(api_key="fake-key")
+    backend.generate("hello", "system", 256, None, temperature=0.0)
+
+    assert backend._client.messages.calls[0]["temperature"] == 0.0
+
+
+def test_think_kwarg_accepted_and_ignored(fake_anthropic):
+    from contemplative_agent_cloud.backends.anthropic import AnthropicBackend
+
+    backend = AnthropicBackend(api_key="fake-key")
+    # The core always passes think=; the backend must accept it without raising.
+    result = backend.generate("hello", "system", 256, None, think=True)
+
+    assert result.thinking is None
+    assert "think" not in backend._client.messages.calls[0]
 
 
 def test_generate_injects_json_schema_instruction(fake_anthropic):
@@ -65,7 +165,7 @@ def test_retries_on_rate_limit(fake_anthropic, RateLimitError, monkeypatch):
     client.messages.raise_exc = RateLimitError("slow down")
 
     result = backend.generate("p", "s", 10, None)
-    assert result == "hello"
+    assert result.text == "hello"
     assert len(client.messages.calls) == 2
 
 
