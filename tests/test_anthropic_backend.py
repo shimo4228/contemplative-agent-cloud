@@ -169,15 +169,35 @@ def test_retries_on_rate_limit(fake_anthropic, RateLimitError, monkeypatch):
     assert len(client.messages.calls) == 2
 
 
-def test_non_retryable_error_returns_none(fake_anthropic):
+def test_non_retryable_error_raises(fake_anthropic):
+    """A non-retryable failure propagates so main records backend_exception,
+    not outcome=empty — swallowing it would collapse auth failures and 4xx
+    rejections into "the model said nothing" (ADR-0075)."""
     from contemplative_agent_cloud.backends.anthropic import AnthropicBackend
 
     backend = AnthropicBackend(api_key="fake-key")
     client = backend._get_client()
     client.messages.raise_exc = ValueError("bad request")
 
-    result = backend.generate("p", "s", 10, None)
-    assert result is None
+    with pytest.raises(ValueError, match="bad request"):
+        backend.generate("p", "s", 10, None)
+
+
+def test_retry_exhaustion_raises(fake_anthropic, RateLimitError, monkeypatch):
+    """A retryable failure that exhausts its retries also propagates —
+    an API that kept 429ing is not "the model said nothing"."""
+    monkeypatch.setattr(
+        "contemplative_agent_cloud.backends._base.RETRY_BASE_DELAY_SECONDS", 0.0
+    )
+
+    from contemplative_agent_cloud.backends.anthropic import AnthropicBackend
+
+    backend = AnthropicBackend(api_key="fake-key", max_retries=0)
+    client = backend._get_client()
+    client.messages.raise_exc = RateLimitError("slow down")
+
+    with pytest.raises(RateLimitError):
+        backend.generate("p", "s", 10, None)
 
 
 def test_empty_content_returns_none(fake_anthropic):

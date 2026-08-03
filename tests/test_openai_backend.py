@@ -81,14 +81,16 @@ def test_usage_absent_leaves_token_fields_none(fake_openai):
 def test_context_window_default_and_gpt5(fake_openai):
     from contemplative_agent_cloud.backends.openai import OpenAIBackend
 
-    assert OpenAIBackend(api_key="k", model="gpt-5").context_window == 400_000
+    # 272K is the gpt-5 *input* cap, not the 400K total — the guard spends
+    # context_window as its whole budget, so the input cap is the safe claim.
+    assert OpenAIBackend(api_key="k", model="gpt-5").context_window == 272_000
     # Dated gpt-5 variants resolve via prefix match.
     assert (
-        OpenAIBackend(api_key="k", model="gpt-5-2025-08-07").context_window == 400_000
+        OpenAIBackend(api_key="k", model="gpt-5-2025-08-07").context_window == 272_000
     )
-    # The whole GPT-5 family (mini / nano) shares the 400K window, so the
+    # The whole GPT-5 family (mini / nano) shares the window, so the
     # gpt-5 prefix intentionally covers them — not a collision.
-    assert OpenAIBackend(api_key="k", model="gpt-5-mini").context_window == 400_000
+    assert OpenAIBackend(api_key="k", model="gpt-5-mini").context_window == 272_000
     # GPT-4.1 family carries a ~1M window; an override must not fall to the
     # 128K default or the budget guard would skip valid long-context calls.
     assert OpenAIBackend(api_key="k", model="gpt-4.1").context_window == 1_000_000
@@ -155,15 +157,35 @@ def test_retries_on_rate_limit(fake_openai, RateLimitError, monkeypatch):
     assert len(client.chat.completions.calls) == 2
 
 
-def test_non_retryable_error_returns_none(fake_openai):
+def test_non_retryable_error_raises(fake_openai):
+    """A non-retryable failure propagates so main records backend_exception,
+    not outcome=empty — swallowing it would collapse auth failures and 4xx
+    rejections into "the model said nothing" (ADR-0075)."""
     from contemplative_agent_cloud.backends.openai import OpenAIBackend
 
     backend = OpenAIBackend(api_key="fake-key")
     client = backend._get_client()
     client.chat.completions.raise_exc = ValueError("bad request")
 
-    result = backend.generate("p", "s", 10, None)
-    assert result is None
+    with pytest.raises(ValueError, match="bad request"):
+        backend.generate("p", "s", 10, None)
+
+
+def test_retry_exhaustion_raises(fake_openai, RateLimitError, monkeypatch):
+    """A retryable failure that exhausts its retries also propagates —
+    an API that kept 429ing is not "the model said nothing"."""
+    monkeypatch.setattr(
+        "contemplative_agent_cloud.backends._base.RETRY_BASE_DELAY_SECONDS", 0.0
+    )
+
+    from contemplative_agent_cloud.backends.openai import OpenAIBackend
+
+    backend = OpenAIBackend(api_key="fake-key", max_retries=0)
+    client = backend._get_client()
+    client.chat.completions.raise_exc = RateLimitError("slow down")
+
+    with pytest.raises(RateLimitError):
+        backend.generate("p", "s", 10, None)
 
 
 def test_empty_choices_returns_none(fake_openai):

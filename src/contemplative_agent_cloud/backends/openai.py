@@ -39,7 +39,12 @@ _DEFAULT_MODEL = "gpt-5"
 # like ``gpt-5-2025-08-07`` still resolves to the gpt-5 window.
 _DEFAULT_CONTEXT_WINDOW = 128_000
 _CONTEXT_WINDOWS: Dict[str, int] = {
-    "gpt-5": 400_000,  # gpt-5 / -mini / -nano all share 400K
+    # gpt-5 / -mini / -nano total 400K, but the *input* cap is 272K (output
+    # 128K is a separate budget). The guard spends context_window as its
+    # whole input+output budget, so report the input cap: declaring 400K
+    # would let the guard pass an oversized prompt the API rejects with a
+    # 400 — the opposite of the under-reporting-is-safe direction above.
+    "gpt-5": 272_000,
     "gpt-4.1": 1_000_000,  # gpt-4.1 / -mini / -nano all share ~1M
 }
 
@@ -82,9 +87,7 @@ class OpenAIBackend:
         OpenAI = load_sdk_symbol("openai", "OpenAI")
         key = self.api_key or os.environ.get("OPENAI_API_KEY")
         if not key:
-            raise RuntimeError(
-                "OPENAI_API_KEY is not set and no api_key was provided."
-            )
+            raise RuntimeError("OPENAI_API_KEY is not set and no api_key was provided.")
         self._client = OpenAI(api_key=key, timeout=self.timeout_seconds)
         return self._client
 
@@ -161,18 +164,38 @@ def _extract_result(response: Any) -> Optional[BackendResult]:
     """
     choices = getattr(response, "choices", None)
     if not choices:
+        logger.warning(
+            "OpenAI response carried no choices; returning None "
+            "(caller records outcome=empty)"
+        )
         return None
     choice = choices[0]
+    # OpenAI's finish_reason already uses "length" for output truncation, so
+    # it feeds the core's drop_truncated gate directly (no translation). Read
+    # it before the content checks so an empty response can say WHY it was
+    # empty (e.g. a reasoning model spending max_completion_tokens before any
+    # visible content ends with finish_reason="length" and content=None).
+    finish_reason = getattr(choice, "finish_reason", None)
     message = getattr(choice, "message", None)
     if message is None:
+        logger.warning(
+            "OpenAI response choice carried no message (finish_reason=%r); "
+            "returning None (caller records outcome=empty)",
+            finish_reason,
+        )
         return None
     content = getattr(message, "content", None)
     if not isinstance(content, str) or not content:
+        # Log the *type*, never the value — refusal / content-filter payloads
+        # are untrusted model output.
+        logger.warning(
+            "OpenAI response message carried no text content "
+            "(finish_reason=%r, content type=%s); returning None "
+            "(caller records outcome=empty)",
+            finish_reason,
+            type(content).__name__,
+        )
         return None
-
-    # OpenAI's finish_reason already uses "length" for output truncation, so
-    # it feeds the core's drop_truncated gate directly (no translation).
-    finish_reason = getattr(choice, "finish_reason", None)
 
     usage = getattr(response, "usage", None)
     eval_count = coerce_int(getattr(usage, "completion_tokens", None))

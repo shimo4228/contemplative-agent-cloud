@@ -29,9 +29,7 @@ def coerce_int(value: Any) -> Optional[int]:
     return value if isinstance(value, int) else None
 
 
-def resolve_context_window(
-    model: str, table: Dict[str, int], default: int
-) -> int:
+def resolve_context_window(model: str, table: Dict[str, int], default: int) -> int:
     """Resolve a provider context window for ``model`` by longest-prefix match.
 
     Cloud model ids carry date/variant suffixes (``gpt-5-2025-08-07``,
@@ -59,11 +57,17 @@ def run_with_retries(
 ) -> Optional[T]:
     """Run ``call`` with exponential-backoff retry on transient errors.
 
-    Retries only on ``retryable_types`` (network, rate limit, 5xx). Any
-    other exception is logged and swallowed as ``None`` so the upstream
-    circuit breaker can record a failure without crashing the caller.
-    Configuration errors (missing API key, missing SDK) should be raised
-    by the caller *before* entering this helper.
+    Retries only on ``retryable_types`` (network, rate limit, 5xx). A
+    non-retryable exception — and a retryable one that exhausts its
+    retries — is logged and **re-raised**, never converted to ``None``:
+    the main repo's caller records a raised exception as
+    ``error_kind="backend_exception"`` (with the exception text) but a
+    ``None`` as ``outcome="empty"`` ("the model said nothing"), so
+    swallowing here would collapse auth failures, 4xx rejections, and
+    response-mapper bugs into the same telemetry row as an empty
+    generation and leave the audit log unable to answer why the call
+    produced nothing (ADR-0075). ``None`` is reserved for ``call`` itself
+    returning ``None`` — a genuinely empty response body.
     """
     for attempt in range(max_retries + 1):
         try:
@@ -72,13 +76,20 @@ def run_with_retries(
             if not isinstance(exc, retryable_types) or attempt >= max_retries:
                 logger.error(
                     "%s request failed (attempt %d/%d): %s",
-                    label, attempt + 1, max_retries + 1, exc,
+                    label,
+                    attempt + 1,
+                    max_retries + 1,
+                    exc,
                 )
-                return None
+                raise
             delay = base_delay * (2**attempt)
             logger.warning(
                 "%s transient error (attempt %d/%d): %s — retry in %.1fs",
-                label, attempt + 1, max_retries + 1, exc, delay,
+                label,
+                attempt + 1,
+                max_retries + 1,
+                exc,
+                delay,
             )
             time.sleep(delay)
     return None

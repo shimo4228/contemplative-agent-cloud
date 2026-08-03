@@ -125,6 +125,17 @@ class AnthropicBackend:
             )
 
         clamped_temperature = max(0.0, min(temperature, _MAX_TEMPERATURE))
+        if clamped_temperature != temperature:
+            # The main repo's telemetry row records the *requested*
+            # temperature, so without this line the clamp would be a silent
+            # fallback and any Ollama-vs-Claude comparison at
+            # COMMENT_TEMPERATURE=1.3 would misattribute the difference.
+            logger.warning(
+                "Anthropic temperature clamped %.2f -> %.2f (provider max %.1f)",
+                temperature,
+                clamped_temperature,
+                _MAX_TEMPERATURE,
+            )
 
         # The core's SAMPLING_TOP_P / SAMPLING_TOP_K (forwarded on the Ollama
         # and mlx paths) are deliberately NOT sent here. They exist to stop a
@@ -159,15 +170,23 @@ def _extract_result(response: Any) -> Optional[BackendResult]:
     treats that as an empty generation (circuit failure), matching the
     pre-contract behavior.
     """
+    # Read stop_reason before the text check so an empty response can say
+    # WHY it was empty (e.g. max_tokens eaten before any text block) —
+    # the caller only sees ``None`` and records outcome="empty".
+    stop_reason = getattr(response, "stop_reason", None)
     text = _extract_text(response)
     if text is None:
+        logger.warning(
+            "Anthropic response carried no text block (stop_reason=%r); "
+            "returning None (caller records outcome=empty)",
+            stop_reason,
+        )
         return None
 
     # Anthropic's ``stop_reason == "max_tokens"`` is the output-truncation
     # signal; the core's drop_truncated gate keys on the literal "length"
     # (Ollama's done_reason vocabulary), so translate it. Other stop reasons
     # pass through as informational telemetry (the gate ignores them).
-    stop_reason = getattr(response, "stop_reason", None)
     finish_reason = "length" if stop_reason == "max_tokens" else stop_reason
 
     usage = getattr(response, "usage", None)
