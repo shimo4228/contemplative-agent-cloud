@@ -134,6 +134,11 @@ configure(backend=AnthropicBackend(
 | Anthropic | `claude-opus-4-7` | `ANTHROPIC_API_KEY` |
 | OpenAI | `gpt-5` | `OPENAI_API_KEY` |
 
+The `gpt-5` path has not been exercised against the live API: it may
+reject `max_tokens` and require `max_completion_tokens`, and it may
+reject a non-default `temperature`. Only `gpt-4o` and
+`claude-sonnet-4-6` have been verified against the real endpoints.
+
 Both backends implement exponential-backoff retry on transient errors
 (network failure, rate limits, 5xx). Non-retryable errors (bad
 request, auth failures) return `None` immediately, which the main
