@@ -2,24 +2,33 @@
 
 > Optional managed-LLM backend package for
 > [contemplative-agent](https://github.com/shimo4228/contemplative-agent).
-> Installing it and setting an API key routes generation calls in
-> contemplative-agent (distill, insight, rules-distill,
-> amend-constitution, post, comment, reply, dialogue, skill-reflect)
-> through Anthropic Claude or OpenAI GPT. Embeddings continue to use
-> local `nomic-embed-text` via Ollama.
+> Installing it, setting a provider and API key, and running the agent
+> through its `contemplative-agent-cloud` command (a wrapper around the
+> core CLI) routes generation calls in contemplative-agent (distill,
+> insight, amend-constitution, post, comment, reply, dialogue)
+> through Anthropic Claude or OpenAI GPT. Embeddings, and `run`'s feed
+> relevance check, continue to use local Ollama (`nomic-embed-text` for
+> embeddings).
 >
-> The main repository's default stack (Ollama + Qwen3.5 9B) is
+> The main repository's default stack (Ollama, Gemma 4 E4B by default) is
 > unchanged by this package. Cloud routing activates only when this
-> package is installed AND an API key and provider are configured.
+> package is installed AND an API key and provider are configured AND
+> the command is started through the wrapper; jobs installed by
+> `install-schedule` call the plain `contemplative-agent` command and
+> generate on local Ollama.
 >
 > Intended for research experiments requiring a generation model
-> larger than Qwen3.5 9B — for example, comparing how distillation
+> larger than the local default — for example, comparing how distillation
 > behavior changes with Claude Opus or GPT-5 while keeping the rest of
 > the memory pipeline identical.
+>
+> Status: active, maintained by hand by one author (@shimo4228),
+> separately from the core.
 
 ## Core documentation
 
 - [README](README.md): install, configure, run, security posture, trade-offs
+- [End-to-end evidence](evidence/2026-04-21-cloud-backend-end-to-end/README.md): the 2026-04-21 dialogue → distill → amend-constitution run on `claude-sonnet-4-6` and `gpt-4o`
 - Main project README: [contemplative-agent README](https://github.com/shimo4228/contemplative-agent/blob/main/README.md)
 
 ## Supported providers
@@ -27,16 +36,19 @@
 - **Anthropic** — default model `claude-opus-4-7`, credential `ANTHROPIC_API_KEY`
 - **OpenAI** — default model `gpt-5`, credential `OPENAI_API_KEY`
 
+Neither default is verified against the live API; `claude-sonnet-4-6` and `gpt-4o` were, in the 2026-04-21 end-to-end run. The `gpt-5` path may reject `max_tokens` or a non-default `temperature`.
+
 ## Architecture
 
 - `src/contemplative_agent_cloud/backends/anthropic.py`: `AnthropicBackend` — implements the `LLMBackend` Protocol against Anthropic's Messages API. `generate()` returns a `BackendResult` (text + `finish_reason` mapped from `stop_reason`, with `max_tokens`→`length`, + token usage). Declares `context_window=200000`, clamps temperature to Anthropic's [0,1] range, and accepts (ignores) `think`. JSON-schema output is requested via a prepended instruction to the user message (Anthropic has no native JSON-schema constrained decoding).
-- `src/contemplative_agent_cloud/backends/openai.py`: `OpenAIBackend` — implements `LLMBackend` against OpenAI's Chat Completions API, returning a `BackendResult` (text + native `length` `finish_reason` + token usage incl. `cached_tokens`). Declares a per-model `context_window` (gpt-5 = 400000, else 128000), forwards temperature unclamped ([0,2]), and accepts (ignores) `think`. JSON-schema output uses the native `response_format: json_schema, strict: true` mode.
-- `src/contemplative_agent_cloud/cli.py`: wrapper entry point. Reads `CONTEMPLATIVE_CLOUD_PROVIDER` / `CONTEMPLATIVE_CLOUD_MODEL` from the environment, constructs the selected backend, calls `contemplative_agent.core.llm.configure(backend=...)`, then delegates to the main `contemplative-agent` CLI.
+- `src/contemplative_agent_cloud/backends/openai.py`: `OpenAIBackend` — implements `LLMBackend` against OpenAI's Chat Completions API, returning a `BackendResult` (text + native `length` `finish_reason` + token usage incl. `cached_tokens`). Declares a per-model `context_window` by model-id prefix (gpt-5 = 272000, its input cap; gpt-4.1 = 1000000; else 128000), forwards temperature unclamped ([0,2]), and accepts (ignores) `think`. JSON-schema output uses the native `response_format: json_schema, strict: true` mode.
+- `src/contemplative_agent_cloud/cli.py`: wrapper entry point. Reads `CONTEMPLATIVE_CLOUD_PROVIDER` / `CONTEMPLATIVE_CLOUD_MODEL` from the environment and from `$MOLTBOOK_HOME/cloud.env` when present (the file overrides the shell), constructs the selected backend (or injects nothing when no provider is set, so the core runs on Ollama), calls `contemplative_agent.core.llm.configure(backend=...)`, then delegates to the main `contemplative-agent` CLI.
+- `src/contemplative_agent_cloud/backends/_base.py`: shared retry helper. Transient errors (network, rate limit, 5xx) are retried with exponential backoff; other errors, and transient ones that exhaust their retries, are re-raised so the main repository records them and counts them toward its circuit breaker.
 
 ## Security trade-off
 
-Installing this package **relaxes** the main repository's "No cloud.
-No API keys in transit. Local Ollama only" promise. When a cloud
+Installing this package **relaxes** the main repository's local-only
+property (no cloud LLM, no LLM API key). When a cloud
 backend is active:
 
 - API keys are loaded from environment variables and sent to the
@@ -54,4 +66,8 @@ install this package and instead run the main repository alone.
 
 ## Related repositories
 
-- [contemplative-agent](https://github.com/shimo4228/contemplative-agent): the main repository that this package extends
+- [contemplative-agent](https://github.com/shimo4228/contemplative-agent): the main repository that this package extends (concept DOI [10.5281/zenodo.19212118](https://doi.org/10.5281/zenodo.19212118))
+- [contemplative-agent-mlx](https://github.com/shimo4228/contemplative-agent-mlx): the other optional generation backend, local MLX generation on Apple Silicon for interactive use
+- [contemplative-agent-otel](https://github.com/shimo4228/contemplative-agent-otel): turns the agent's replayable audit logs into OpenTelemetry traces
+- [contemplative-agent-data](https://github.com/shimo4228/contemplative-agent-data): memory, constitution and skill snapshots from the agent's runs, CC0
+- [shimo4228](https://github.com/shimo4228/shimo4228): the author's hub, listing Contemplative Agent next to the author's other practice lines
