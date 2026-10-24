@@ -34,7 +34,7 @@ def test_anthropic_routes_through_main_generate(fake_anthropic):
     # Sanitized passthrough of the fake's response_text — proves main read
     # result.text (and the usage/finish_reason fields) without AttributeError.
     assert out == "hello"
-    assert not llm._circuit.is_open
+    assert not llm.circuit_reading().is_open
 
 
 def test_openai_routes_through_main_generate(fake_openai):
@@ -44,7 +44,7 @@ def test_openai_routes_through_main_generate(fake_openai):
     out = llm.generate("ping", system="You are a test. Reply pong.")
 
     assert out == "hello"
-    assert not llm._circuit.is_open
+    assert not llm.circuit_reading().is_open
 
 
 def test_truncation_gate_drops_max_tokens_generation(fake_anthropic):
@@ -67,4 +67,4 @@ def test_truncation_gate_drops_max_tokens_generation(fake_anthropic):
 
     assert out is None
     # Dropped truncation is scored as a success, not a failure.
-    assert not llm._circuit.is_open
+    assert not llm.circuit_reading().is_open
