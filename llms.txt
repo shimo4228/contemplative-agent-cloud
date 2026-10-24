@@ -22,8 +22,8 @@
 > behavior changes with Claude Opus or GPT-5 while keeping the rest of
 > the memory pipeline identical.
 >
-> Status: active, maintained by hand by one author (@shimo4228),
-> separately from the core.
+> Status: Frozen as of contemplative-agent v2.13.0 (kit static PASS 2026-10-24).
+> Not maintained; run `pip-audit` on the dependencies before use.
 
 ## Core documentation
 
