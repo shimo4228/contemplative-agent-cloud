@@ -140,6 +140,9 @@ Ollama on `localhost:11434` stays in use either way: embeddings run on
 unless `OLLAMA_MODEL` is set) which feed posts are relevant, as of core
 main on 2026-10-09. `DECISION_MODEL` names another Ollama model for that
 check; an empty value turns it off, and `run` then engages with no posts.
+That check always talks to Ollama, never to your cloud provider, and a
+cloud-routed run loads and unloads the judging model once per batch (about
+7 s for gemma, an accepted cost: ADR-0112 addendum of 2026-10-24 in the core).
 
 ## Programmatic use
 
@@ -173,10 +176,27 @@ The `gpt-5` path has not been exercised against the live API: it
 may reject `max_tokens` and require `max_completion_tokens`, and it may
 reject a non-default `temperature`.
 
+Neither backend asks for a thinking trace: `think` is accepted for Protocol
+conformance and ignored, `BackendResult.thinking` is always `None`, and the
+core's trace audit therefore records `trace_absent` for cloud-served calls
+(core ADR-0069, addendum of 2026-10-24).
+
 Both backends retry transient errors (network failure, rate limits, 5xx)
 with exponential backoff. Other errors, and transient ones that run out
 of retries, are re-raised; the main repository records them and counts
 them toward its circuit breaker.
+
+## Verified against the core
+
+Verified against contemplative-agent main `v2.13.0-41-gaec9d8a` (conformance
+kit level static) on 2026-10-24. The lines below are the core's release gate
+output (`scripts/check-sibling-backends.sh`), pasted as printed; refresh them at
+each release:
+
+```
+[sibling] ok contemplative_agent_cloud.backends.anthropic:AnthropicBackend sha=00e4d3e main=v2.13.0-41-gaec9d8a level=static kit=2
+[sibling] ok contemplative_agent_cloud.backends.openai:OpenAIBackend sha=00e4d3e main=v2.13.0-41-gaec9d8a level=static kit=2
+```
 
 ## More from the author
 
