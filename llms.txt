@@ -38,6 +38,10 @@
 
 Neither default is verified against the live API; `claude-sonnet-4-6` and `gpt-4o` were, in the 2026-04-21 end-to-end run. The `gpt-5` path may reject `max_tokens` or a non-default `temperature`.
 
+Neither backend requests a thinking trace (`think` is accepted and ignored; `BackendResult.thinking` is `None`, so the core records `trace_absent`).
+
+Verified against contemplative-agent main `v2.13.0-41-gaec9d8a` (kit level static, kit=2, cloud `sha=00e4d3e`) on 2026-10-24; the exact gate lines are in README.md, "Verified against the core".
+
 ## Architecture
 
 - `src/contemplative_agent_cloud/backends/anthropic.py`: `AnthropicBackend` — implements the `LLMBackend` Protocol against Anthropic's Messages API. `generate()` returns a `BackendResult` (text + `finish_reason` mapped from `stop_reason`, with `max_tokens`→`length`, + token usage). Declares `context_window=200000`, clamps temperature to Anthropic's [0,1] range, and accepts (ignores) `think`. JSON-schema output is requested via a prepended instruction to the user message (Anthropic has no native JSON-schema constrained decoding).
